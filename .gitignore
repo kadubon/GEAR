@@ -1,0 +1,34 @@
+# Virtual Environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE / Editor specific
+.vscode/
+.idea/
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Assets - Screenshots (if any)
+assets
+
+# Log files
+*.log
+
+# ToDo
+Todo.md
+
+# Knowledge
+KNOWLEDGE.md
+docs/KNOWLEDGE.md
+
+# Environment variables
+.env
+
+# tests
+# tests/
+# run_tests.py
