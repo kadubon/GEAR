@@ -1,0 +1,5 @@
+pyautogui
+pillow
+pywinauto
+psutil
+playwright
