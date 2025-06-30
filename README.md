@@ -1,93 +1,86 @@
-# G.E.A.R. - Gemini-driven Execution, and Autonomic Refinement Agent
+# G.E.A.R. - Goal-oriented Execution and Adaptive Response Agent
 
-G.E.A.R. is an experimental agent designed to understand and execute tasks described in a simple text file. It leverages the Gemini CLI's problem-solving framework to perform a variety of operations, including shell commands and complex GUI automation on Windows.
+## 1. Overview
 
-## Core Concepts
+G.E.A.R. is a sophisticated, autonomous agent designed to understand and execute complex, long-term tasks on a local machine. It bridges the gap between high-level user goals and the low-level actions (shell commands, GUI interactions, web browsing) required to achieve them.
 
-- **Task-driven:** The agent operates based on a `ToDo.md` task list.
-- **Multi-modal Execution:** It can execute shell commands, control desktop GUI applications, and automate web browsers.
-- **Autonomous Operation:** It works autonomously through the task list until it's completed or an error occurs.
-- **Knowledge Management:** It learns from its actions and records the outcomes in `docs/KNOWLEDGE.md` for analysis. This file is not committed to the repository.
+This system is intended to be operated by a controlling entity (like the Gemini-CLI) that defines a goal. The agent then takes over, pursuing the goal with a persistent, self-correcting, and adaptive loop.
 
-## ⚠️ Security Warning
+## 2. Core Principles
 
-This agent uses `subprocess.run(shell=True)` to execute commands from `ToDo.md`. This provides great flexibility but also carries significant security risks. **Only run tasks from trusted sources.** Malicious commands in `ToDo.md` could harm your system.
+- **Portability:** The agent is designed to be fully portable. It uses dynamic path resolution and is not tied to any specific machine's file structure.
+- **Environment Safety:** G.E.A.R. **must** operate within a Python virtual environment (`.venv`) to ensure all dependencies are isolated and the host system's global environment is not affected.
+- **Goal-Oriented:** The agent's entire operation is driven by a single, clearly defined goal specified in `goal.txt`.
+- **Adaptive Execution:** It employs a reactive **Observe-Decide-Act-Record** loop. Instead of following a rigid, pre-defined plan, it determines the next best action based on the real-time outcome of its previous step.
+- **Dual-Tier Memory:** To enable learning without context overload, the agent uses two forms of memory:
+    - **Working Memory (`assets/KNOWLEDGE.md`):** A temporary, verbose log of every action taken to achieve a single goal.
+    - **Episodic Memory (`assets/EPISODIC_MEMORY.md`):** A permanent, high-level summary of the outcome of each goal. This serves as the agent's long-term memory for strategic learning.
 
-## Setup
+## 3. How to Use
 
-0.  **Install Gemini CLI**
+Using the G.E.A.R. agent involves a simple, three-step process managed by its controlling entity.
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/kadubon/GEAR.git
-    cd GEAR
-    ```
+### Step 1: Setup (First-Time Use)
 
-2.  **Create a virtual environment and install dependencies:**
-    This project uses `uv` for environment and package management.
-    ```bash
-    # Make sure `uv` is installed (e.g., `pip install uv`)
-    uv venv
-    # Activate the environment
-    # On Windows
-    .venv\Scripts\activate
-    # On macOS/Linux
-    # source .venv/bin/activate
-    
-    # Install dependencies
-    uv pip install -r requirements.txt
-    ```
+Ensure you have Python and `uv` installed. Then, create and populate the virtual environment:
 
-## How to Use
-
-1.  **Define your tasks in `ToDo.md`:**
-    Populate the `ToDo.md` file with tasks for the agent to complete. Use the format `- [ ] Your task description`. The agent will execute the first unfinished task it finds.
-
-2.  **Task Types:**
-    G.E.A.R. identifies tasks by prefixes. Parameters are provided as a JSON string.
-
-    *   **`shell:`**: Executes a shell command.
-        - Example: `- [ ] shell: python --version`
-
-    *   **`gui:`**: Performs desktop GUI automation. The agent manages one active application at a time.
-        - **`start`**: Starts an application.
-            - `path`: Path to a `.exe`.
-            - `aumid`: AUMID for UWP apps.
-            - `title`: Optional regex to identify the window title.
-            - Example (Notepad): `- [ ] gui:start:{"path": "notepad.exe"}`
-            - Example (UWP): `- [ ] gui:start:{"aumid": "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App", "title": "Calculator"}`
-        - **`click`**: Clicks a UI element in the active application.
-            - `control_identifiers`: A dictionary of `pywinauto` identifiers.
-            - Example: `- [ ] gui:click:{"control_identifiers": {"title": "1", "control_type": "Button"}}`
-        - **`type`**: Types text into a UI element.
-            - `control_identifiers`: Identifiers for the target element.
-            - `text`: The text to type.
-            - Example: `- [ ] gui:type:{"control_identifiers": {"control_type": "Edit"}, "text": "Hello from G.E.A.R.!"}`
-        - **`keys`**: Sends keyboard shortcuts/keys to the active application.
-            - `keys`: The key sequence (e.g., `^s` for Ctrl+S).
-            - Example: `- [ ] gui:keys:{"keys": "^s"}`
-        - **`print_identifiers`**: Prints all control identifiers for the active app's main window to the console. Useful for debugging.
-            - Example: `- [ ] gui:print_identifiers:{}`
-        - **`list_windows`**: Lists all currently open windows with their title, class, and PID.
-            - Example: `- [ ] gui:list_windows:{}`
-        - **`close`**: Closes the currently active application.
-            - Example: `- [ ] gui:close:{}`
-        - **`close_by_name`**: Closes an application by its executable name.
-            - `app_name`: The process name (e.g., `notepad.exe`).
-            - Example: `- [ ] gui:close_by_name:{"app_name": "notepad.exe"}`
-
-3.  **Run the agent:**
-    Ensure your virtual environment is activated.
-    ```bash
-    python -m src.main
-    ```
-
-4.  **Monitor progress:**
-    - The agent's progress can be tracked by observing `ToDo.md` as tasks are marked `[x]`.
-    - Detailed logs and outcomes are recorded in `docs/KNOWLEDGE.md`.
-
-## Running Tests
-
-To ensure the integrity of the agent's components, run the unit tests:
 ```bash
-python -m unittest discover tests
+# Create the virtual environment
+uv venv
+
+# Activate the environment and install dependencies
+.venv\Scripts\activate
+
+uv pip install -r requirements.txt
+```
+
+### Step 2: Define a Goal
+
+Manually or programmatically, write a clear, high-level objective into the `goal.txt` file. For example:
+
+```
+Search for today's weather in New York City and save it to a file.
+```
+
+### Step 3: Run the Agent
+
+Activate the virtual environment and execute the main module. The agent will read the goal and begin its autonomous operation.
+
+```bash
+.venv\Scripts\activate && python -m src.main
+```
+
+The agent will run until the goal is completed or it determines it cannot proceed. All actions will be logged in `assets/KNOWLEDGE.md`.
+
+### Step 4: Consolidate Memory (Optional but Recommended)
+
+After a run, to save the learnings and clean up the working memory, run the memory summarizer:
+
+```bash
+.venv\Scripts\activate && python -m src.memory_summarizer
+```
+
+This will create a permanent, high-level record in `assets/EPISODIC_MEMORY.md` and prepare the agent for its next task.
+
+## 4. Project Structure
+
+```
+GEAR/
+├── .venv/                # Isolated Python virtual environment
+├── assets/
+│   ├── KNOWLEDGE.md      # (Working Memory) Verbose log of the current run
+│   └── EPISODIC_MEMORY.md# (Long-Term Memory) Summaries of past runs
+├── src/
+│   ├── main.py           # Main execution loop of the agent
+│   ├── planner.py        # Decides the next best action
+│   ├── knowledge_manager.py # Manages reading/writing to memory files
+│   ├── task_executor.py  # Executes shell commands
+│   ├── gui_controller.py   # Handles GUI automation
+│   └── memory_summarizer.py # Consolidates working memory into episodic memory
+├── .gitignore
+├── GEMINI.md             # The official operating protocol for the Gemini-CLI
+├── goal.txt              # The input file for the agent's high-level goal
+├── LICENSE
+├── README.md             # This file
+└── requirements.txt      # Python dependencies
+```

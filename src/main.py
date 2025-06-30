@@ -1,147 +1,161 @@
 """
 Main entry point for the G.E.A.R. agent.
-Orchestrates parsing tasks, executing them, and recording knowledge.
+Orchestrates the goal-oriented, reactive loop of the agent.
 """
 
 import time
 import os
 import json
 
-from src.task_parser import find_next_task
 from src.task_executor import execute_shell_command
-from src.knowledge_manager import record_knowledge
+from src.knowledge_manager import record_knowledge, read_knowledge_history
 from src.gui_controller import GUIController, WebController
+from src.planner import determine_next_step
 
-TODO_FILE = "ToDo.md"
+GOAL_FILE = "goal.txt"
+MAX_LOOPS = 10 # Safety break to prevent infinite loops
+
+def execute_task(task: str, gui_controller: GUIController, web_controller: WebController) -> tuple[bool, str, str, str]:
+    """
+    Executes a single task string.
+    Returns a tuple of (success, command, stdout, stderr).
+    """
+    success, stdout, stderr = False, "", ""
+    command = "n/a"
+
+    try:
+        if task.startswith('shell:'):
+            command = task.split('shell:', 1)[1].strip()
+            success, stdout, stderr = execute_shell_command(command)
+
+        elif task.startswith('gui:'):
+            parts = task.split(':', 2)
+            action = parts[1].strip()
+            params_str = parts[2].strip() if len(parts) > 2 else "{}"
+            params = json.loads(params_str)
+            command = f"gui:{action}"
+
+            action_map = {
+                'start': lambda: gui_controller.start_application(path=params.get("path"), title_re=params.get("title"), aumid=params.get("aumid")),
+                'close': lambda: gui_controller.close_current_application(),
+                'close_by_name': lambda: gui_controller.close_application_by_name(params.get("app_name")),
+                'click': lambda: gui_controller.click_element(params.get("control_identifiers")),
+                'type': lambda: gui_controller.type_text_in_element(params.get("control_identifiers"), params.get("text")),
+                'keys': lambda: gui_controller.send_keys_to_app(params.get("keys")),
+                'print_identifiers': lambda: (gui_controller.print_app_control_identifiers(), "Printed to console")[0],
+            }
+            if action in action_map:
+                success = action_map[action]()
+                stdout = f"GUI action '{action}' executed."
+            else:
+                stderr = f"Unsupported GUI action: {action}"
+
+        elif task.startswith('web:'):
+            parts = task.split(':', 2)
+            action = parts[1].strip()
+            params_str = parts[2].strip() if len(parts) > 2 else "{}"
+            params = json.loads(params_str)
+            command = f"web:{action}"
+
+            action_map = {
+                'launch': lambda: web_controller.launch_browser(browser_type=params.get("browser_type", "chromium"), headless=params.get("headless", True)),
+                'navigate': lambda: web_controller.navigate(params.get("url")),
+                'type': lambda: web_controller.type_text_web(params.get("selector"), params.get("text")),
+                'click': lambda: web_controller.click_element_web(params.get("selector")),
+                'wait': lambda: web_controller.wait_for_selector(
+                    params.get("selector"),
+                    state=params.get("state", "visible"),
+                    timeout=params.get("timeout", 30000)
+                ),
+                'close': lambda: web_controller.close_browser(),
+            }
+            if action in action_map:
+                success = action_map[action]()
+                stdout = f"Web action '{action}' executed."
+            else:
+                stderr = f"Unsupported Web action: {action}"
+        
+        else:
+            stderr = f"Unknown task type for task: {task}"
+
+    except json.JSONDecodeError as e:
+        stderr = f"Error parsing parameters for task '{task}': {e}"
+    except Exception as e:
+        stderr = f"An unexpected error occurred during execution of task '{task}': {e}"
+
+    if not success and not stderr:
+        stderr = f"Task '{command}' failed without explicit error."
+
+    return success, command, stdout, stderr
+
+# --- Path Setup ---
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+GOAL_FILE = os.path.join(PROJECT_ROOT, "goal.txt")
 
 def main_loop():
     """
     The main operational loop of the G.E.A.R. agent.
     """
+    if not os.path.exists(GOAL_FILE) or os.path.getsize(GOAL_FILE) == 0:
+        print("INFO: Goal file is empty or does not exist. Agent has nothing to do.")
+        return
+
+    with open(GOAL_FILE, "r", encoding="utf-8") as f:
+        high_level_goal = f.read().strip()
+
+    print(f"G.E.A.R. agent starting with goal: \"{high_level_goal}\"")
+
     gui_controller = GUIController()
     web_controller = WebController()
+    
+    loop_count = 0
+    try:
+        while loop_count < MAX_LOOPS:
+            loop_count += 1
+            print(f"\n--- Agent Loop {loop_count}/{MAX_LOOPS} ---")
 
-    while True:
-        try:
-            with open(TODO_FILE, "r", encoding="utf-8") as f:
-                content = f.read()
-            
-            next_task = find_next_task(content)
-            
+            # 1. OBSERVE: Read the history of actions
+            history = read_knowledge_history()
+
+            # 2. ORIENT & DECIDE: Determine the next step
+            next_task = determine_next_step(high_level_goal, history)
+
             if next_task is None:
-                print("All tasks completed. Shutting down.")
+                print("INFO: Goal achieved or no further steps can be determined. Shutting down.")
                 break
 
+            # 3. ACT: Execute the task
             print(f"--> Executing task: {next_task}")
-
-            if next_task.startswith('shell:'):
-                command_to_run = next_task.split('shell:', 1)[1].strip()
-                success, stdout, stderr = execute_shell_command(command_to_run)
-                status = "Success" if success else "Failure"
-                learning = "Executed a direct shell command."
-                record_knowledge(
-                    task=next_task,
-                    command=command_to_run,
-                    status=status,
-                    stdout=stdout,
-                    stderr=stderr,
-                    learning=learning
-                )
-            elif next_task.startswith('gui:'):
-                gui_command_parts = next_task.split(':', 2)
-                gui_action = gui_command_parts[1].strip()
-                gui_params_json_str = gui_command_parts[2].strip() if len(gui_command_parts) > 2 else "{}"
-
-                print(f"    > GUI Task: {gui_action} with parameters: {gui_params_json_str}")
-
-                try:
-                    params = json.loads(gui_params_json_str)
-                    success = False
-                    stdout = ""
-                    stderr = ""
-                    learning = ""
-
-                    if gui_action == 'start':
-                        success = gui_controller.start_application(
-                            path=params.get("path"),
-                            title_re=params.get("title"),
-                            aumid=params.get("aumid")
-                        )
-                        stdout = "Application started successfully." if success else "Failed to start application."
-                        learning = f"Attempted to start application."
-                    elif gui_action == 'close':
-                        success = gui_controller.close_current_application()
-                        stdout = "Application closed successfully." if success else "Failed to close application."
-                        learning = "Attempted to close application."
-                    elif gui_action == 'close_by_name':
-                        success = gui_controller.close_application_by_name(params.get("app_name"))
-                        stdout = "Application closed successfully." if success else "Failed to close application."
-                        learning = f"Attempted to close application by name: {params.get('app_name')}"
-                    elif gui_action == 'click':
-                        success = gui_controller.click_element(params.get("control_identifiers"))
-                        stdout = "Clicked successfully." if success else "Element not found or click failed."
-                        learning = f"Attempted to click GUI element."
-                    elif gui_action == 'type':
-                        success = gui_controller.type_text_in_element(params.get("control_identifiers"), params.get("text"))
-                        stdout = "Text typed successfully." if success else "Failed to type text."
-                        learning = f"Attempted to type text in GUI element."
-                    elif gui_action == 'keys':
-                        success = gui_controller.send_keys_to_app(params.get("keys"))
-                        stdout = "Keys sent successfully." if success else "Failed to send keys."
-                        learning = f"Attempted to send keys."
-                    elif gui_action == 'print_identifiers':
-                        gui_controller.print_app_control_identifiers()
-                        success, stdout = True, "Control identifiers printed to console."
-                        learning = f"Printed control identifiers."
-                    else:
-                        stderr = f"Unsupported GUI action or missing parameters: {gui_action}"
-                    
-                    status = "Success" if success else "Failure"
-                    if not success and not stderr:
-                        stderr = stdout
-                    
-                    record_knowledge(
-                        task=next_task,
-                        command=f"gui:{gui_action}",
-                        status=status,
-                        stdout=stdout,
-                        stderr=stderr,
-                        learning=learning
-                    )
-
-                except json.JSONDecodeError as e:
-                    status = "Failure"
-                    stderr = f"Error parsing GUI parameters (JSON): {e}"
-                    record_knowledge(task=next_task, command=f"gui:{gui_action}", status=status, stdout="", stderr=stderr, learning=f"Failed to parse GUI parameters. Error: {e}")
-
-            else:
-                status = "RequiresPlanning"
-                learning = f"The task '{next_task}' is a high-level goal that needs to be broken down into executable steps."
-                record_knowledge(task=next_task, command="N/A", status=status, stdout="", stderr="", learning=learning)
-
-
+            success, command, stdout, stderr = execute_task(next_task, gui_controller, web_controller)
+            status = "Success" if success else "Failure"
             print(f"--> Task status: {status}")
 
-            if status == "Success":
-                new_content = content.replace(f"- [ ] {next_task}", f"- [x] {next_task}", 1)
-                with open(TODO_FILE, "w", encoding="utf-8") as f:
-                    f.write(new_content)
-            elif status == "RequiresPlanning":
-                print("Task requires planning. Please refine the ToDo.md.")
-                break
-            else:
-                print(f"Task failed. See docs/KNOWLEDGE.md. Stopping for safety.")
-                break
+            # 4. RECORD: Record the outcome
+            learning = f"Executed task '{next_task}' as part of goal '{high_level_goal}'."
+            record_knowledge(
+                high_level_goal=high_level_goal,
+                task=next_task,
+                command=command,
+                status=status,
+                stdout=stdout,
+                stderr=stderr,
+                learning=learning
+            )
 
-        except FileNotFoundError:
-            print(f"Error: {TODO_FILE} not found. Please create it.")
-            break
-        except Exception as e:
-            print(f"An unexpected error occurred: {e}")
-            break
+            if not success:
+                print(f"ERROR: Task failed. See assets/KNOWLEDGE.md for details. Stopping for safety.")
+                break
+            
+            time.sleep(2) # Pause between steps
 
-        time.sleep(2)
+    except Exception as e:
+        print(f"FATAL: An unexpected exception broke the main loop: {e}")
+    finally:
+        # Cleanup resources
+        if web_controller.browser:
+            web_controller.close_browser()
+        print("\n--- G.E.A.R. agent shutdown complete. ---")
+
 
 if __name__ == "__main__":
-    print("G.E.A.R. agent starting...")
     main_loop()
